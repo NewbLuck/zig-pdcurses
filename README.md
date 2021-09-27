@@ -1,2 +1,2 @@
 # zig-pdcurses
-PDCurses wrap for Zig
+WIP PDCursesMod wrap for Zig, only has Win libs for now.
