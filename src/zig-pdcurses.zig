@@ -1,5 +1,5 @@
 const std = @import("std");
-pub const c = @import("pdcurses.zig");
+pub const c = @import("pdpanel.zig");
 pub const chars = @import("chars.zig");
 pub const mouse = @import("mouse.zig");
 pub const keys = @import("keys.zig");
@@ -7,8 +7,17 @@ pub const keys = @import("keys.zig");
 pub const chtype = c.chtype;
 pub const char_size = @bitSizeOf(chtype);
 
+pub const CursorVisibility = enum(i32) {
+    invisible = 0,
+    normal = 1,
+    emphasized = 2,
+};
+
 // Sets when initScr runs
 pub var std_scr:Window = undefined;
+
+var global_alloc:*std.mem.Allocator = undefined;
+pub var panel_cache:std.AutoHashMap(usize, *Panel) = undefined;
 
 pub const Border = struct {
     char_l:chtype = chars.vline,
@@ -84,11 +93,21 @@ pub const MouseEvent = struct {
             else => false,
         };
     }
-    // This probably is incorrect, no docs 
+    // This probably is incorrect, couldn't find good docs 
     pub fn mouseScroll(self:Self) bool {
         return self.bstate & mouse.mouse_wheel_scroll;
     }
     // butt shift ctrl alt / mod shift ctrl alt?
+
+    pub fn transform(window:?Window) !Position {
+        var pos = Position{};
+        if(window) |win| {
+            if(!c.wmouse_trafo(win.ptr,pos.x,pos.y,true)) return error.InvalidCoordinates;
+        } else {
+            if(!c.mouse_trafo(pos.x,pos.y,true)) return error.InvalidCoordinates;
+        }
+        return pos;
+    }
 };
 
 // Window restructuring, basically just calls the w-type fns
@@ -202,12 +221,135 @@ pub const Window = struct {
             .y = c.getcury(self.ptr),
         };
     }
+    pub fn windowOffset(self:Self) Position {
+        return .{
+            .x = c.getparx(self.ptr),
+            .y = c.getpary(self.ptr),
+        };
+    }
+    pub fn windowBegin(self:Self) Position {
+        return .{
+            .x = c.getbegx(self.ptr),
+            .y = c.getbegy(self.ptr),
+        };
+    }
+    pub fn windowEnd(self:Self) Position {
+        return .{
+            .x = c.getmaxx(self.ptr),
+            .y = c.getmaxy(self.ptr),
+        };
+    }
+
+    pub fn dumpToFile(self:Self,file:[]const u8) !void {
+        var c_f = c.fopen(file.ptr,"w");
+        if(c.putwin(self.ptr,c_f) != c.OK) return error.errorDumpingWindow;
+    }
+    // TODO: Look into these, do they change window sizes or anything?
+    pub fn loadFromFile(self:Self,file:[]const u8) !void {
+        var c_f = c.fopen(file.ptr,"r");
+        if(c.getwin(self.ptr,c_f) != c.OK) return error.errorLoadingWindow;
+    }
+
+    pub fn overlay(self:Self,dest:Window) void {
+        _=c.overlay(self.ptr,dest.ptr);
+    }
+    pub fn overwrite(self:Self,dest:Window) void {
+        _=c.overwrite(self.ptr,dest.ptr);
+    }
+
+    pub fn copyToWindow(
+        self:Self,dest:Window,
+        src_row:i32,src_col:i32,
+        dest_srow:i32,dest_scol:i32,
+        dest_erow:i32,dest_ecol:i32,
+        ovrlay:bool
+    ) void {
+        var ibool:i32 = if(ovrlay) 1 else 0;
+        _=c.copywin(self.ptr,dest,src_row,src_col,dest_srow,dest_scol,
+                    dest_erow,dest_ecol,ibool);
+    }
 
     pub fn attrOn (self:Self,attr:chtype) void {
         _=c.wattron(self.ptr,attr);
     }
     pub fn attrOff (self:Self,attr:chtype) void {
         _=c.wattroff(self.ptr,attr);
+    }
+};
+
+pub const Panel = struct {
+    const Self = @This();
+
+    ptr:[*c]c.PANEL = null,
+    window:*Window = undefined,
+    // Static fns
+
+    /// Creates a new panel from a window and puts 
+    /// it at the top of the stack
+    pub fn init(win:*Window) Self {
+        var new = Self{};
+        new.ptr = c.new_panel(win.ptr);
+        new.window = win;
+        return new;
+    }
+    // Have to manually register for now
+    pub fn register (self:*Self) void {
+        panel_cache.put(@ptrToInt(self.ptr),self) catch unreachable;
+    }
+    pub fn update() void {
+        _=c.update_panels();
+    }
+
+    // Member fns
+    pub fn delete(self:*Self) void {
+        _=c.del_panel(self.ptr);
+        self.ptr = null;
+    }
+    pub fn hide(self:*Self) void {
+        _=c.hide_panel(self.ptr);
+    }
+    pub fn show(self:*Self) void {
+        _=c.show_panel(self.ptr);
+    }
+    pub fn toTop(self:*Self) void {
+        _=c.top_panel(self.ptr);
+    }
+    pub fn toBottom(self:*Self) void {
+        _=c.bottom_panel(self.ptr);
+    }
+    pub fn move(self:*Self,start_y:i32,start_x:i32) void {
+        _=c.move_panel(self.ptr, start_y, start_x);
+    }
+    pub fn replaceWindow(self:*Self,win:Window) void {
+        _=c.replace_panel(self.ptr, win.ptr);
+    }
+    // How do we return our panel??? Cache the pointers and do a lookup?
+    //pub fn panelAbove(self:*Self) [*c]c.PANEL {
+    //    return c.panel_above(self.ptr);
+    //}
+    pub fn panelAbove(self:*Self) ?*Panel {
+        if(c.panel_above(self.ptr)) |ptr| {
+            return panel_cache.get(@ptrToInt(ptr));
+        }
+        return null;
+    }
+    // How do we return our panel??? Cache the pointers and do a lookup?
+    //pub fn panelBelow(self:*Self) [*c]c.PANEL {
+    //    return c.panel_below(self.ptr);
+    //}
+    pub fn panelBelow(self:*Self) ?*Panel {
+        if(c.panel_below(self.ptr)) |ptr| {
+            return panel_cache.get(@ptrToInt(ptr));
+        }
+        return null;
+    }
+
+    pub fn setUserPtr(self:Self,comptime T:type,ptr:*const T) void {
+        _=c.set_panel_userptr(self.ptr,ptr);
+    }
+    pub fn getUserPtr(self:Self,comptime T:type) ?*const T {
+        return @ptrCast(*const T,@alignCast(@alignOf(T),c.panel_userptr(self.ptr)));
+        //return @intToPtr(*const T,@ptrToInt(c.panel_userptr(self.ptr)));
     }
 };
 
@@ -249,7 +391,9 @@ pub const ColorPair = struct {
 };
 
 //pub const term = struct {
-    pub fn initScr () void { 
+    pub fn initScr (allocator:*std.mem.Allocator) void { 
+        global_alloc = allocator;
+        panel_cache = std.AutoHashMap(usize, *Panel).init(global_alloc);
         _=c.initscr(); 
         std_scr = Window { 
             .ptr = c.stdscr,
@@ -264,6 +408,16 @@ pub const ColorPair = struct {
     pub fn noEcho () void { _=c.noecho(); }
     pub fn endWin () void { _=c.endwin(); }
     
+    pub fn napForMs(ms:i32) void { _=c.napms(ms); }
+    pub fn defProgMode() void { _=c.def_prog_mode(); }
+    pub fn defShellMode() void { _=c.def_shell_mode(); }
+    pub fn resetProgMode() void { _=c.reset_prog_mode(); }
+    pub fn resetShellMode() void { _=c.reset_shell_mode(); }
+    pub fn saveTty() void { _=c.savetty(); }
+    pub fn resetTty() void { _=c.resetty(); }
+
+    pub fn doUpdate() void { _=c.doupdate(); }
+
     pub fn attrOn (attr:chtype) void {
         _=c.attron(attr);
     }
@@ -335,5 +489,29 @@ pub const ColorPair = struct {
         } else return null;
     }
     
+    /// Basically shorthand for std_scr.cursorPosition()
+    pub fn getYX () Position {
+        // The macros are broken in translate-c, so whatever
+        return std_scr.cursorPos();
+    }
+
+    pub fn screenDump(file:[]const u8) !void {
+        if(c.scr_dump(file.ptr) != c.OK) return error.UnableToDumpScreen;
+    }
+    // TODO: Look into these, what does curses fill out behind the scenes?
+    // We need to duplicate it with our structures to keep Window in sync
+    pub fn screenRestore(file:[]const u8) !void {
+        if(c.scr_restore(file.ptr) != c.OK) return error.UnableToRestoreScreen;
+    }
+
+    pub fn screenInitFromFile(file:[]const u8) !void {
+        if(c.scr_restore(file.ptr) != c.OK) return error.UnableToRestoreScreen;
+    }
+
+    pub fn setCursor (vis:CursorVisibility) void {
+        _=c.curs_set(@enumToInt(vis));
+    }
+
+
 
 //}
