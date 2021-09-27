@@ -1,6 +1,7 @@
 const std = @import("std");
 pub const c = @import("pdpanel.zig");
 pub const chars = @import("chars.zig");
+pub const colors = @import("color.zig");
 pub const mouse = @import("mouse.zig");
 pub const keys = @import("keys.zig");
 
@@ -200,6 +201,10 @@ pub const Window = struct {
         _=c.mvwaddchnstr(self.ptr,row,col,string.ptr,len);
     }
 
+    pub fn backgroundColor(self:Self,color_attr:chtype) void {
+        _=c.wbkgd(self.ptr,color_attr);
+    }
+
     /// Refreshes the window
     pub fn refresh(self:Self) void { 
         _=c.wrefresh(self.ptr);
@@ -388,6 +393,10 @@ pub const ColorPair = struct {
         return new;
     }
 
+    pub fn attr(self:*Self) chtype {
+        return @as(chtype,(@intCast(chtype,self.id) << c.PDC_COLOR_SHIFT) & c.A_COLOR);
+    }
+
 };
 
 //pub const term = struct {
@@ -407,6 +416,7 @@ pub const ColorPair = struct {
     pub fn echo () void { _=c.echo(); }
     pub fn noEcho () void { _=c.noecho(); }
     pub fn endWin () void { _=c.endwin(); }
+    pub fn halfDelay(tenths_sec:i32) void { _=c.halfdelay(tenths_sec); }
     
     pub fn napForMs(ms:i32) void { _=c.napms(ms); }
     pub fn defProgMode() void { _=c.def_prog_mode(); }
@@ -447,6 +457,10 @@ pub const ColorPair = struct {
     /// See mvAddChStr, but only n chars (-1 for whole string)
     pub fn mvAddChStrLen(row:i32,col:i32,string:[]const u8,len:i32) void {
         _=c.mvaddchnstr(row,col,string.ptr,len);
+    }
+
+    pub fn backgroundColor(color_attr:chtype) void {
+        _=c.bkgd(color_attr);
     }
 
     pub fn hasColors() bool {
