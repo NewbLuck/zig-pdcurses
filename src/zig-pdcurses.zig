@@ -196,6 +196,9 @@ pub const Window = struct {
     pub fn addChStrLen(self:Self,string:[]const u8,len:i32) void {
         _=c.waddchnstr(self.ptr,string.ptr,len);
     }
+    pub fn mvAddCh(self:Self,row:i32,col:i32,char:AttrChar) void {
+        _=c.mvwaddch(self.ptr,row,col,char);
+    }
     /// Copy string to pos, do not move cursor, 
     /// Does not overflow line, truncates
     pub fn mvAddChStr(row:i32,col:i32,string:[]const u8) void {
@@ -366,6 +369,9 @@ pub const Window = struct {
     }
     pub fn syncDown (self:Self) void { _=c.wsyncdown(self.ptr); }
 
+    pub fn deleteChar (self:Self) void { _=c.wdelch(self.ptr); }
+    pub fn deleteLine (self:Self) void { _=c.wdeleteln(self.ptr); }
+    pub fn erase (self:Self) void { _=c.werase(self.ptr); }
 
 
 };
