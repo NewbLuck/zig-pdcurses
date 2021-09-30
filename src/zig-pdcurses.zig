@@ -4,9 +4,10 @@ pub const chars = @import("chars.zig");
 pub const colors = @import("color.zig");
 pub const mouse = @import("mouse.zig");
 pub const keys = @import("keys.zig");
+pub const attrib = @import("attrib.zig");
 
-pub const chtype = c.chtype;
-pub const char_size = @bitSizeOf(chtype);
+pub const AttrChar = c.chtype;
+pub const char_size = @bitSizeOf(AttrChar);
 
 pub const CursorVisibility = enum(i32) {
     invisible = 0,
@@ -21,14 +22,14 @@ var global_alloc:*std.mem.Allocator = undefined;
 pub var panel_cache:std.AutoHashMap(usize, *Panel) = undefined;
 
 pub const Border = struct {
-    char_l:chtype = chars.vline,
-    char_r:chtype = chars.vline,
-    char_t:chtype = chars.hline,
-    char_b:chtype = chars.hline,
-    char_tl:chtype = chars.ulcorner,
-    char_tr:chtype = chars.urcorner,
-    char_bl:chtype = chars.llcorner,
-    char_br:chtype = chars.lrcorner,
+    char_l:AttrChar = chars.vline,
+    char_r:AttrChar = chars.vline,
+    char_t:AttrChar = chars.hline,
+    char_b:AttrChar = chars.hline,
+    char_tl:AttrChar = chars.ulcorner,
+    char_tr:AttrChar = chars.urcorner,
+    char_bl:AttrChar = chars.llcorner,
+    char_br:AttrChar = chars.lrcorner,
 };
 
 pub const Position = struct { x:i32 = -1, y:i32 = -1 };
@@ -124,6 +125,7 @@ pub const Window = struct {
     width:i32 = 0,
     row:i32 = 0,
     col:i32 = 0,
+    derived:bool = false,
 
     //border_chars:[]const u8 = "\u2502\u2502\u2500\u2500\u250c\u2510\u2514\u2518",
     
@@ -137,15 +139,18 @@ pub const Window = struct {
         nwin.ptr = c.newwin(height,width,row,col);
         return nwin;
     }
+    pub fn deinit (self:*Self) void {
+        _=c.delwin(self.ptr);
+    }
     /// Shorthand for creating a border,
-    pub fn box(self:Self,vert_ch:chtype,horiz_ch:chtype) void {
+    pub fn box(self:Self,vert_ch:AttrChar,horiz_ch:AttrChar) void {
         _=c.box(self.ptr,vert_ch,horiz_ch);
     }
     /// Draws a border for the window
     pub fn border(
         self:Self,
-        char_l:chtype, char_r:chtype, char_t:chtype, char_b:chtype,
-        char_tl:chtype, char_tr:chtype, char_bl:chtype, char_br:chtype
+        char_l:AttrChar, char_r:AttrChar, char_t:AttrChar, char_b:AttrChar,
+        char_tl:AttrChar, char_tr:AttrChar, char_bl:AttrChar, char_br:AttrChar
     ) void {
         _=c.wborder(self.ptr,char_l,char_r,char_t,char_b,char_tl,char_tr,char_bl,char_br);
     }
@@ -166,20 +171,20 @@ pub const Window = struct {
     }
 
     // vline, hline, mvvline, mvhline
-    pub fn vline(self:Self,char:chtype,len:i32) void {
+    pub fn vline(self:Self,char:AttrChar,len:i32) void {
         _=c.wvline(self.ptr,char,len);
     }
-    pub fn hline(self:Self,char:chtype,len:i32) void {
+    pub fn hline(self:Self,char:AttrChar,len:i32) void {
         _=c.whline(self.ptr,char,len);
     }
-    pub fn mvVline(self:Self,row:i32,col:i32,char:chtype,len:i32) void {
+    pub fn mvVline(self:Self,row:i32,col:i32,char:AttrChar,len:i32) void {
         _=c.mvwvline(self.ptr,row,col,char,len);
     }
-    pub fn mvHline(self:Self,row:i32,col:i32,char:chtype,len:i32) void {
+    pub fn mvHline(self:Self,row:i32,col:i32,char:AttrChar,len:i32) void {
         _=c.mvwhline(self.ptr,row,col,char,len);
     }
 
-    pub fn addCh (self:Self,char:chtype) void { 
+    pub fn addCh (self:Self,char:AttrChar) void { 
         _=c.waddch(self.ptr,char); 
     }
     /// Copy string to cursor pos, do not move cursor, 
@@ -201,13 +206,23 @@ pub const Window = struct {
         _=c.mvwaddchnstr(self.ptr,row,col,string.ptr,len);
     }
 
-    pub fn backgroundColor(self:Self,color_attr:chtype) void {
-        _=c.wbkgd(self.ptr,color_attr);
+    pub fn background(self:Self,attrs:AttrChar) void {
+        _=c.wbkgd(self.ptr,attrs);
+    }
+    pub fn setBackground(self:Self,attrs:AttrChar) void {
+        _=c.wbkgdset(self.ptr,attrs);
+    }
+
+    pub fn getBackground(self:Self) AttrChar {
+        return c.getbkgd(self.ptr);
     }
 
     /// Refreshes the window
     pub fn refresh(self:Self) void { 
         _=c.wrefresh(self.ptr);
+    }
+    pub fn refreshNoUpdate(self:Self) void { 
+        _=c.wnoutrefresh(self.ptr);
     }
 
     pub fn print(self:Self,comptime format:[]const u8,args:anytype) void {
@@ -274,12 +289,85 @@ pub const Window = struct {
                     dest_erow,dest_ecol,ibool);
     }
 
-    pub fn attrOn (self:Self,attr:chtype) void {
-        _=c.wattron(self.ptr,attr);
+    pub fn attrOn (self:Self,attr:AttrChar) void {
+        _=c.wattr_on(self.ptr,attr,null);
     }
-    pub fn attrOff (self:Self,attr:chtype) void {
-        _=c.wattroff(self.ptr,attr);
+    pub fn attrOff (self:Self,attr:AttrChar) void {
+        _=c.wattr_off(self.ptr,attr,null);
     }
+    pub fn attrSet (self:Self,attr:AttrChar) void {
+        _=c.wattr_set(self.ptr,attr,null);
+    }
+    const Style = struct { colors:?ColorPair, attr:?AttrChar };
+    pub fn attrGet (self:Self) Style {
+        var cchar:AttrChar = undefined;
+        var cpid:[*c]c_short = null;
+        _=c.wattr_get(self.ptr,&cchar,cpid,null);
+        if(cpid) |cid| {
+            return .{ .colors = ColorPair.getPair(cid.*), .attr = cchar };
+        } else {
+            return .{ .colors = null, .attr = cchar };
+        }
+    }
+    pub fn colorSet(self:Self,id:i16,) void {
+        _=c.wcolor_set(self.ptr, id, null);
+    }
+    /// num_chars of -1 is till EoL
+    pub fn changeAt(self:Self,num_chars:i32,attr:AttrChar,color:ColorPair) void {
+        _=c.wchgat(self.ptr,num_chars,attr,color.attr(),null);
+    }
+    pub fn mvChangeAt(self:Self,row:i32,col:i32,num_chars:i32,attr:AttrChar,color:ColorPair) void {
+        _=c.mvwchgat(self.ptr,row,col,num_chars,attr,color.attr(),null);
+    }
+
+    pub fn clear(self:Self) void { _=c.wclear(self.ptr); }
+    pub fn clearToBottom(self:Self) void { _=c.wclrtobot(self.ptr); }
+    pub fn clearToEol(self:Self) void { _=c.wclrtoeol(self.ptr); }
+
+    pub fn move(self:*Self,row:i32,col:i32) void {
+        self.row = row;
+        self.col = col;
+        _=c.mvwin(self.ptr,row,col);
+    }
+    pub fn subWindow (self:Self,num_rows:i32,num_cols:i32,row:i32,col:i32) Window {
+        return .{
+            .ptr = c.subwin(self.ptr, num_rows, num_cols, row, col),
+            .height = num_rows,
+            .width = num_cols,
+            .row = row,
+            .col = col,
+            .derived = true,
+        };
+    }
+    pub fn subWindowRel (self:Self,num_rows:i32,num_cols:i32,row:i32,col:i32) Window {
+        return subWindow(self,num_rows,num_cols,row + self.row,col + self.col);
+    }
+
+    pub fn moveDerived (self:Self,row:i32,col:i32) void {
+        if(!self.derived) return;
+        _=c.mvderwin(self, row, col);
+    }
+
+    pub fn duplicate(self:Self) Window {
+        return .{
+            .ptr = c.dupwin(self.ptr),
+            .width = self.width,
+            .height = self.height,
+            .row = self.row,
+            .col = self.col,
+            .derived = self.derived,
+        };
+    }
+
+    pub fn cursorSyncUp (self:Self) void { _=c.wcursyncup(self.ptr); }
+    pub fn syncUp (self:Self) void { _=c.wsyncup(self.ptr); }
+    pub fn syncOk (self:Self,autosync:bool) void { 
+        _=c.wsyncok(self.ptr,autosync); 
+    }
+    pub fn syncDown (self:Self) void { _=c.wsyncdown(self.ptr); }
+
+
+
 };
 
 pub const Panel = struct {
@@ -380,8 +468,8 @@ pub const ColorPair = struct {
     
     // replaces pair_content
     pub fn getPair (id:i16) Self {
-        var new = Self{ .id = id };
-        _=c.pair_content(id, [*c]new.fg_color, [*c]new.bg_color);
+        var new = Self{ .id = id, .fg_color = -1, .bg_color = -1 };
+        _=c.pair_content(id, &new.fg_color, &new.bg_color);
         return new;
     }
 
@@ -393,8 +481,8 @@ pub const ColorPair = struct {
         return new;
     }
 
-    pub fn attr(self:*Self) chtype {
-        return @as(chtype,(@intCast(chtype,self.id) << c.PDC_COLOR_SHIFT) & c.A_COLOR);
+    pub fn attr(self:*Self) AttrChar {
+        return @as(AttrChar,(@intCast(AttrChar,self.id) << c.PDC_COLOR_SHIFT) & c.A_COLOR);
     }
 
 };
@@ -412,6 +500,7 @@ pub const ColorPair = struct {
     }
     pub fn refresh() void { _=c.refresh(); }
     pub fn startColor () void { _=c.start_color(); }
+    pub fn useDefaultColors () void { _=c.use_default_colors(); }
     pub fn cBreak () void { _=c.cbreak(); }
     pub fn echo () void { _=c.echo(); }
     pub fn noEcho () void { _=c.noecho(); }
@@ -428,10 +517,10 @@ pub const ColorPair = struct {
 
     pub fn doUpdate() void { _=c.doupdate(); }
 
-    pub fn attrOn (attr:chtype) void {
+    pub fn attrOn (attr:AttrChar) void {
         _=c.attron(attr);
     }
-    pub fn attrOff (attr:chtype) void {
+    pub fn attrOff (attr:AttrChar) void {
         _=c.attroff(attr);
     }
 
@@ -439,7 +528,7 @@ pub const ColorPair = struct {
         return c.getch();
     }
 
-    pub fn addCh (ch:chtype) void { _=c.addch(ch); }
+    pub fn addCh (ch:AttrChar) void { _=c.addch(ch); }
     /// Copy string to cursor pos, do not move cursor, 
     /// Does not overflow line, truncates
     pub fn addChStr(string:[]const u8) void {
@@ -459,7 +548,7 @@ pub const ColorPair = struct {
         _=c.mvaddchnstr(row,col,string.ptr,len);
     }
 
-    pub fn backgroundColor(color_attr:chtype) void {
+    pub fn backgroundColor(color_attr:AttrChar) void {
         _=c.bkgd(color_attr);
     }
 
