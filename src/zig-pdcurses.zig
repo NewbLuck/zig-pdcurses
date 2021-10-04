@@ -24,7 +24,7 @@ pub var panel_cache:std.AutoHashMap(usize, *Panel) = undefined;
 pub const Border = struct {
     char_l:AttrChar = chars.vline,
     char_r:AttrChar = chars.vline,
-    char_t:AttrChar = chars.hline,
+    @"char_t":AttrChar = chars.hline,
     char_b:AttrChar = chars.hline,
     char_tl:AttrChar = chars.ulcorner,
     char_tr:AttrChar = chars.urcorner,
@@ -189,11 +189,11 @@ pub const Window = struct {
     }
     /// Copy string to cursor pos, do not move cursor, 
     /// Does not overflow line, truncates
-    pub fn addChStr(self:Self,string:[]const u8) void {
+    pub fn addChStr(self:Self,string:[]const AttrChar) void {
         _=c.waddchstr(self.ptr,string.ptr);
     }
     /// See addChStr, but only n chars (-1 for whole string)
-    pub fn addChStrLen(self:Self,string:[]const u8,len:i32) void {
+    pub fn addChStrLen(self:Self,string:[]const AttrChar,len:i32) void {
         _=c.waddchnstr(self.ptr,string.ptr,len);
     }
     pub fn mvAddCh(self:Self,row:i32,col:i32,char:AttrChar) void {
@@ -201,11 +201,11 @@ pub const Window = struct {
     }
     /// Copy string to pos, do not move cursor, 
     /// Does not overflow line, truncates
-    pub fn mvAddChStr(row:i32,col:i32,string:[]const u8) void {
+    pub fn mvAddChStr(self:Self,row:i32,col:i32,string:[]const AttrChar) void {
         _=c.mvwaddchstr(self.ptr,row,col,string.ptr);
     }
     /// See mvAddChStr, but only n chars (-1 for whole string)
-    pub fn mvAddChStrLen(row:i32,col:i32,string:[]const u8,len:i32) void {
+    pub fn mvAddChStrLen(self:Self,row:i32,col:i32,string:[]const AttrChar,len:i32) void {
         _=c.mvwaddchnstr(self.ptr,row,col,string.ptr,len);
     }
 
@@ -395,6 +395,9 @@ pub const Panel = struct {
     pub fn register (self:*Self) void {
         panel_cache.put(@ptrToInt(self.ptr),self) catch unreachable;
     }
+    pub fn unregister (self:*Self) void {
+        _=panel_cache.remove(@ptrToInt(self.ptr));
+    }
     pub fn update() void {
         _=c.update_panels();
     }
@@ -493,134 +496,143 @@ pub const ColorPair = struct {
 
 };
 
-//pub const term = struct {
-    pub fn initScr (allocator:*std.mem.Allocator) void { 
-        global_alloc = allocator;
-        panel_cache = std.AutoHashMap(usize, *Panel).init(global_alloc);
-        _=c.initscr(); 
-        std_scr = Window { 
-            .ptr = c.stdscr,
-            .width = c.getmaxx(c.stdscr),
-            .height = c.getmaxy(c.stdscr),
+
+pub fn initScr (allocator:*std.mem.Allocator) void { 
+    global_alloc = allocator;
+    panel_cache = std.AutoHashMap(usize, *Panel).init(global_alloc);
+    _=c.initscr(); 
+    std_scr = Window { 
+        .ptr = c.stdscr,
+        .width = c.getmaxx(c.stdscr),
+        .height = c.getmaxy(c.stdscr),
+    };
+}
+
+pub fn refresh() void { _=c.refresh(); }
+pub fn startColor () void { _=c.start_color(); }
+pub fn useDefaultColors () void { _=c.use_default_colors(); }
+pub fn cBreak () void { _=c.cbreak(); }
+pub fn echo () void { _=c.echo(); }
+pub fn noEcho () void { _=c.noecho(); }
+pub fn endWin () void { _=c.endwin(); }
+pub fn halfDelay(tenths_sec:i32) void { _=c.halfdelay(tenths_sec); }
+
+pub fn napForMs(ms:i32) void { _=c.napms(ms); }
+pub fn defProgMode() void { _=c.def_prog_mode(); }
+pub fn defShellMode() void { _=c.def_shell_mode(); }
+pub fn resetProgMode() void { _=c.reset_prog_mode(); }
+pub fn resetShellMode() void { _=c.reset_shell_mode(); }
+pub fn saveTty() void { _=c.savetty(); }
+pub fn resetTty() void { _=c.resetty(); }
+
+pub fn doUpdate() void { _=c.doupdate(); }
+
+pub fn attrOn (attr:AttrChar) void {
+    _=c.attron(attr);
+}
+pub fn attrOff (attr:AttrChar) void {
+    _=c.attroff(attr);
+}
+
+pub fn getCh() i32 {
+    return c.getch();
+}
+
+
+pub fn addCh (ch:AttrChar) void { _=c.addch(ch); }
+pub fn mvAddCh (row:i32,col:i32,ch:AttrChar) void { _=c.mvaddch(row,col,ch); }
+/// Copy string to cursor pos, do not move cursor, 
+/// Does not overflow line, truncates
+pub fn addChStr(string:[]const u8) void {
+    _=c.addchstr(string.ptr);
+}
+/// See addChStr, but only n chars (-1 for whole string)
+pub fn addChStrLen(string:[]const u8,len:i32) void {
+    _=c.addchnstr(string.ptr,len);
+}
+/// Copy string to pos, do not move cursor, 
+/// Does not overflow line, truncates
+pub fn mvAddChStr(row:i32,col:i32,string:[]const u8) void {
+    _=c.mvaddchstr(row,col,string.ptr);
+}
+/// See mvAddChStr, but only n chars (-1 for whole string)
+pub fn mvAddChStrLen(row:i32,col:i32,string:[]const u8,len:i32) void {
+    _=c.mvaddchnstr(row,col,string.ptr,len);
+}
+
+pub fn backgroundColor(color_attr:AttrChar) void {
+    _=c.bkgd(color_attr);
+}
+
+pub fn hasColors() bool {
+    return c.has_colors();
+}
+pub fn canChangeColor() bool {
+    return c.can_change_color();
+}
+
+pub fn keypad(win:Window,enable:bool) void {
+    _=c.keypad(win.ptr,enable);
+}
+
+/// Modifies a color index (see color.*), color values are 0-1000
+pub fn initColor(id:i16,r:i16,g:i16,b:i16) void {
+    _=c.init_color(id,r,g,b);
+}
+
+pub fn clrToEol () void { _=c.clrtoeol(); }
+pub fn clrToBottom () void { _=c.clrtobot(); }
+
+/// Returns the mask with valid masks
+/// Returns 0 if none were valid
+pub fn mouseMask(mask:u32,old_mask:*?u32) u32 {
+    return c.mousemask(mask,old_mask);
+}
+
+pub fn hasMouse() bool { return c.has_mouse(); }
+
+pub fn getMouse() ?MouseEvent {
+    var evt:c.MEVENT = undefined;
+    if(c.getmouse(&evt) == c.OK) {
+        return .{
+            .id = evt.id,
+            .x = evt.x,
+            .y = evt.y,
+            .z = evt.z,
+            .bstate = evt.bstate,
         };
-    }
-    pub fn refresh() void { _=c.refresh(); }
-    pub fn startColor () void { _=c.start_color(); }
-    pub fn useDefaultColors () void { _=c.use_default_colors(); }
-    pub fn cBreak () void { _=c.cbreak(); }
-    pub fn echo () void { _=c.echo(); }
-    pub fn noEcho () void { _=c.noecho(); }
-    pub fn endWin () void { _=c.endwin(); }
-    pub fn halfDelay(tenths_sec:i32) void { _=c.halfdelay(tenths_sec); }
-    
-    pub fn napForMs(ms:i32) void { _=c.napms(ms); }
-    pub fn defProgMode() void { _=c.def_prog_mode(); }
-    pub fn defShellMode() void { _=c.def_shell_mode(); }
-    pub fn resetProgMode() void { _=c.reset_prog_mode(); }
-    pub fn resetShellMode() void { _=c.reset_shell_mode(); }
-    pub fn saveTty() void { _=c.savetty(); }
-    pub fn resetTty() void { _=c.resetty(); }
+    } else return null;
+}
 
-    pub fn doUpdate() void { _=c.doupdate(); }
+/// Basically shorthand for std_scr.cursorPosition()
+pub fn getYX () Position {
+    // The macros are broken in translate-c, so whatever
+    return std_scr.cursorPos();
+}
 
-    pub fn attrOn (attr:AttrChar) void {
-        _=c.attron(attr);
-    }
-    pub fn attrOff (attr:AttrChar) void {
-        _=c.attroff(attr);
-    }
+pub fn screenDump(file:[]const u8) !void {
+    if(c.scr_dump(file.ptr) != c.OK) return error.UnableToDumpScreen;
+}
+// TODO: Look into these, what does curses fill out behind the scenes?
+// We need to duplicate it with our structures to keep Window in sync
+pub fn screenRestore(file:[]const u8) !void {
+    if(c.scr_restore(file.ptr) != c.OK) return error.UnableToRestoreScreen;
+}
 
-    pub fn getCh() i32 {
-        return c.getch();
-    }
+pub fn screenInitFromFile(file:[]const u8) !void {
+    if(c.scr_restore(file.ptr) != c.OK) return error.UnableToRestoreScreen;
+}
 
-    pub fn addCh (ch:AttrChar) void { _=c.addch(ch); }
-    /// Copy string to cursor pos, do not move cursor, 
-    /// Does not overflow line, truncates
-    pub fn addChStr(string:[]const u8) void {
-        _=c.addchstr(string.ptr);
-    }
-    /// See addChStr, but only n chars (-1 for whole string)
-    pub fn addChStrLen(string:[]const u8,len:i32) void {
-        _=c.addchnstr(string.ptr,len);
-    }
-    /// Copy string to pos, do not move cursor, 
-    /// Does not overflow line, truncates
-    pub fn mvAddChStr(row:i32,col:i32,string:[]const u8) void {
-        _=c.mvaddchstr(row,col,string.ptr);
-    }
-    /// See mvAddChStr, but only n chars (-1 for whole string)
-    pub fn mvAddChStrLen(row:i32,col:i32,string:[]const u8,len:i32) void {
-        _=c.mvaddchnstr(row,col,string.ptr,len);
-    }
+pub fn setCursor (vis:CursorVisibility) void {
+    _=c.curs_set(@enumToInt(vis));
+}
 
-    pub fn backgroundColor(color_attr:AttrChar) void {
-        _=c.bkgd(color_attr);
+pub fn u8to64 (string:[]const u8,attr:AttrChar) []const AttrChar {
+    var bytes:[512]AttrChar = .{0} ** 512;
+    var i:usize = 0;
+    while(i < string.len) : (i += 1) {
+        bytes[i] = string[i] | attr;
     }
+    return bytes[0..string.len];
+}
 
-    pub fn hasColors() bool {
-        return c.has_colors();
-    }
-    pub fn canChangeColor() bool {
-        return c.can_change_color();
-    }
-
-    pub fn keypad(win:Window,enable:bool) void {
-        _=c.keypad(win.ptr,enable);
-    }
-
-    /// Modifies a color index (see color.*), color values are 0-1000
-    pub fn initColor(id:i16,r:i16,g:i16,b:i16) void {
-        _=c.init_color(id,r,g,b);
-    }
-
-    pub fn clrToEol () void { _=c.clrtoeol(); }
-    pub fn clrToBottom () void { _=c.clrtobot(); }
-
-    /// Returns the mask with valid masks
-    /// Returns 0 if none were valid
-    pub fn mouseMask(mask:u32,old_mask:*?u32) u32 {
-        return c.mousemask(mask,old_mask);
-    }
-
-    pub fn hasMouse() bool { return c.has_mouse(); }
-
-    pub fn getMouse() ?MouseEvent {
-        var evt:c.MEVENT = undefined;
-        if(c.getmouse(&evt) == c.OK) {
-            return .{
-                .id = evt.id,
-                .x = evt.x,
-                .y = evt.y,
-                .z = evt.z,
-                .bstate = evt.bstate,
-            };
-        } else return null;
-    }
-    
-    /// Basically shorthand for std_scr.cursorPosition()
-    pub fn getYX () Position {
-        // The macros are broken in translate-c, so whatever
-        return std_scr.cursorPos();
-    }
-
-    pub fn screenDump(file:[]const u8) !void {
-        if(c.scr_dump(file.ptr) != c.OK) return error.UnableToDumpScreen;
-    }
-    // TODO: Look into these, what does curses fill out behind the scenes?
-    // We need to duplicate it with our structures to keep Window in sync
-    pub fn screenRestore(file:[]const u8) !void {
-        if(c.scr_restore(file.ptr) != c.OK) return error.UnableToRestoreScreen;
-    }
-
-    pub fn screenInitFromFile(file:[]const u8) !void {
-        if(c.scr_restore(file.ptr) != c.OK) return error.UnableToRestoreScreen;
-    }
-
-    pub fn setCursor (vis:CursorVisibility) void {
-        _=c.curs_set(@enumToInt(vis));
-    }
-
-
-
-//}
